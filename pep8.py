@@ -113,7 +113,7 @@ DEFAULT_EXCLUDE = '.svn,CVS,.bzr,.hg,.git'
 DEFAULT_IGNORE = 'E24'
 MAX_LINE_LENGTH = 79
 
-INDENT_REGEX = re.compile(r'([ \t]*)')
+INDENT_REGEX = re.compile(r'^([ \t]*)')
 RAISE_COMMA_REGEX = re.compile(r'raise\s+\w+\s*(,)')
 SELFTEST_REGEX = re.compile(r'(Okay|[EW]\d{3}):\s(.*)')
 ERRORCODE_REGEX = re.compile(r'[EW]\d{3}')
@@ -206,6 +206,11 @@ class tabs_or_spaces(Check):
             if char != indent_char:
                 return offset, "E101 indentation contains mixed spaces and tabs"
 
+    def fix(self, checker, physical_line, indent_char):
+        indent = INDENT_REGEX.match(physical_line).group(1)
+        fixed_indent = indent.replace('\t', '    ')
+        checker.physical_line = fixed_indent + physical_line[len(indent):]
+
 
 class tabs_obsolete(Check):
     r"""
@@ -222,8 +227,8 @@ class tabs_obsolete(Check):
         if indent.count('\t'):
             return indent.index('\t'), "W191 indentation contains tabs"
 
-    def fix(self, checker):
-        checker.physical_line = checker.physical_line.replace("\t", "    ")
+    def fix(self, checker, physical_line):
+        checker.physical_line = physical_line.replace("\t", "    ")
         checker.report_fix("tab converted to 4 spaces.")
 
 
@@ -259,8 +264,8 @@ class trailing_whitespace(Check):
             else:
                 return 0, "W293 blank line contains whitespace"
 
-    def fix(self, checker):
-        checker.physical_line = re.sub(r' *$', "", checker.physical_line)
+    def fix(self, checker, physical_line):
+        checker.physical_line = re.sub(r' *$', "", physical_line)
         checker.report_fix("whitespace stripped from end of line.")
 
 
@@ -277,7 +282,7 @@ class trailing_blank_lines(Check):
         if physical_line.strip() == '' and line_number == len(lines):
             return 0, "W391 blank line at end of file"
 
-    def fix(self, checker):
+    def fix(self, checker, physical_line, lines, line_number):
         checker.physical_line = ""
         checker.report_fix("superfluous trailing blank line removed from end of file.")
 
@@ -292,7 +297,7 @@ class missing_newline(Check):
         if physical_line.rstrip() == physical_line:
             return len(physical_line), "W292 no newline at end of file"
 
-    def fix(self, checker):
+    def fix(self, checker, physical_line):
         checker.physical_line += "\n"
         checker.report_fix("newline added to end of file.")
 
@@ -959,16 +964,7 @@ class Checker(object):
         line = self.readline()
         if line:
             self.check_physical(line)
-        return line
-
-    def run_check(self, check, argument_names):
-        """
-        Run a check plugin.
-        """
-        arguments = []
-        for name in argument_names:
-            arguments.append(getattr(self, name))
-        return check.check(*arguments)
+            return line
 
     def check_physical(self, line):
         """
@@ -978,12 +974,13 @@ class Checker(object):
         if self.indent_char is None and len(line) and line[0] in ' \t':
             self.indent_char = line[0]
         for name, check, argument_names in options.physical_checks:
-            result = self.run_check(check, argument_names)
+            args = [getattr(self, argname) for argname in argument_names]
+            result = check.check(*args)
             if result is not None:
                 offset, text = result
                 self.report_error(self.line_number, offset, text, check)
                 if options.fix and hasattr(check, 'fix'):
-                    check.fix(self)
+                    check.fix(self, *args)
         if options.fix:
             self.writer.write(self.physical_line)
 
@@ -1037,7 +1034,8 @@ class Checker(object):
         for name, check, argument_names in options.logical_checks:
             if options.verbose >= 4:
                 print('   ' + name)
-            result = self.run_check(check, argument_names)
+            args = [getattr(self, argname) for argname in argument_names]
+            result = check.check(*args)
             if result is not None:
                 offset, text = result
                 if isinstance(offset, tuple):
@@ -1050,6 +1048,8 @@ class Checker(object):
                                                + offset - token_offset)
                 self.report_error(original_number, original_offset,
                                   text, check)
+                if options.fix and hasattr(check, 'fix'):
+                    check.fix(self, *args)
         self.previous_logical = self.logical_line
 
     def check_all(self, expected=None, line_offset=0):
