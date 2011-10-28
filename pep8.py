@@ -142,12 +142,53 @@ options = None
 args = None
 
 
+# check registry
+class CheckMeta(type):
+    def __new__(meta, name, bases, classdict):
+        cls = type.__new__(meta, name, bases, classdict)
+        try:
+            Check
+        except NameError:
+            cls.all_checks = []
+            return cls
+        instance = cls()
+        Check.all_checks.append(instance)
+        return cls
+
+
+class Check(object):
+    __metaclass__ = CheckMeta
+
+    codes = []
+
+    def _report_fix(self, s):
+        if not options.quiet:
+            print " - pep8 fix:", s
+
+
+def find_checks(argument_name):
+    """
+    Find all checks where the first argument name starts with argument_name.
+    """
+
+    checks = []
+    for check in Check.all_checks:
+        args = inspect.getargspec(check.check)[0][1:]
+        if args and args[0].startswith(argument_name):
+            for code in check.codes or ['']:
+                if not code or not ignore_code(code):
+                    checks.append((check.__class__.__name__, check, args))
+                    break
+    checks.sort()
+    return checks
+
+
 ##############################################################################
 # Plugins (check functions) for physical lines
 ##############################################################################
 
 
-def tabs_or_spaces(physical_line, indent_char):
+class tabs_or_spaces(Check):
     r"""
     Never mix tabs and spaces.
 
@@ -161,13 +202,16 @@ def tabs_or_spaces(physical_line, indent_char):
     Okay: if a == 0:\n        a = 1\n        b = 1
     E101: if a == 0:\n        a = 1\n\tb = 1
     """
-    indent = INDENT_REGEX.match(physical_line).group(1)
-    for offset, char in enumerate(indent):
-        if char != indent_char:
-            return offset, "E101 indentation contains mixed spaces and tabs"
+    codes = ['E101']
+
+    def check(self, physical_line, indent_char):
+        indent = INDENT_REGEX.match(physical_line).group(1)
+        for offset, char in enumerate(indent):
+            if char != indent_char:
+                return offset, "E101 indentation contains mixed spaces and tabs"
 
 
-def tabs_obsolete(physical_line):
+class tabs_obsolete(Check):
     r"""
     For new projects, spaces-only are strongly recommended over tabs.  Most
     editors have features that make this easy to do.
@@ -175,12 +219,19 @@ def tabs_obsolete(physical_line):
     Okay: if True:\n    return
     W191: if True:\n\treturn
     """
-    indent = INDENT_REGEX.match(physical_line).group(1)
-    if indent.count('\t'):
-        return indent.index('\t'), "W191 indentation contains tabs"
+    codes = ['W191']
+
+    def check(self, physical_line):
+        indent = INDENT_REGEX.match(physical_line).group(1)
+        if indent.count('\t'):
+            return indent.index('\t'), "W191 indentation contains tabs"
+
+    def fix(self, checker):
+        checker.physical_line = checker.physical_line.replace("\t", "    ")
+        self._report_fix("tab converted to 4 spaces.")
 
 
-def trailing_whitespace(physical_line):
+class trailing_whitespace(Check):
     r"""
     JCR: Trailing whitespace is superfluous.
     FBM: Except when it occurs as part of a blank line (i.e. the line is
@@ -199,37 +250,58 @@ def trailing_whitespace(physical_line):
     W291: spam(1)\s
     W293: class Foo(object):\n    \n    bang = 12
     """
-    physical_line = physical_line.rstrip('\n')    # chr(10), newline
-    physical_line = physical_line.rstrip('\r')    # chr(13), carriage return
-    physical_line = physical_line.rstrip('\x0c')  # chr(12), form feed, ^L
-    stripped = physical_line.rstrip()
-    if physical_line != stripped:
-        if stripped:
-            return len(stripped), "W291 trailing whitespace"
-        else:
-            return 0, "W293 blank line contains whitespace"
+    codes = ['W291', 'W293']
+
+    def check(self, physical_line):
+        physical_line = physical_line.rstrip('\n')    # chr(10), newline
+        physical_line = physical_line.rstrip('\r')    # chr(13), carriage return
+        physical_line = physical_line.rstrip('\x0c')  # chr(12), form feed, ^L
+        stripped = physical_line.rstrip()
+        if physical_line != stripped:
+            if stripped:
+                return len(stripped), "W291 trailing whitespace"
+            else:
+                return 0, "W293 blank line contains whitespace"
+
+    def fix(self, checker):
+        checker.physical_line = re.sub(r' *$', "", checker.physical_line)
+        self._report_fix("whitespace stripped from end of line.")
 
 
-def trailing_blank_lines(physical_line, lines, line_number):
+class trailing_blank_lines(Check):
     r"""
     JCR: Trailing blank lines are superfluous.
 
     Okay: spam(1)
     W391: spam(1)\n
     """
-    if physical_line.strip() == '' and line_number == len(lines):
-        return 0, "W391 blank line at end of file"
+    codes = ['W391']
+
+    def check(self, physical_line, lines, line_number):
+        if physical_line.strip() == '' and line_number == len(lines):
+            return 0, "W391 blank line at end of file"
+
+    def fix(self, checker):
+        checker.physical_line = ""
+        self._report_fix("superfluous trailing blank line removed from end of file.")
 
 
-def missing_newline(physical_line):
+class missing_newline(Check):
     """
     JCR: The last line should have a newline.
     """
-    if physical_line.rstrip() == physical_line:
-        return len(physical_line), "W292 no newline at end of file"
+    codes = ['W292']
+
+    def check(self, physical_line):
+        if physical_line.rstrip() == physical_line:
+            return len(physical_line), "W292 no newline at end of file"
+
+    def fix(self, checker):
+        checker.physical_line += "\n"
+        self._report_fix("newline added to end of file.")
 
 
-def maximum_line_length(physical_line):
+class maximum_line_length(Check):
     """
     Limit all lines to a maximum of 79 characters.
 
@@ -240,18 +312,21 @@ def maximum_line_length(physical_line):
     For flowing long blocks of text (docstrings or comments), limiting the
     length to 72 characters is recommended.
     """
-    line = physical_line.rstrip()
-    length = len(line)
-    if length > MAX_LINE_LENGTH:
-        try:
-            # The line could contain multi-byte characters
-            if not hasattr(line, 'decode'):   # Python 3
-                line = line.encode('latin-1')
-            length = len(line.decode('utf-8'))
-        except UnicodeDecodeError:
-            pass
-    if length > MAX_LINE_LENGTH:
-        return MAX_LINE_LENGTH, "E501 line too long (%d characters)" % length
+    codes = ['E501']
+
+    def check(self, physical_line):
+        line = physical_line.rstrip()
+        length = len(line)
+        if length > MAX_LINE_LENGTH:
+            try:
+                # The line could contain multi-byte characters
+                if not hasattr(line, 'decode'):   # Python 3
+                    line = line.encode('latin-1')
+                length = len(line.decode('utf-8'))
+            except UnicodeDecodeError:
+                pass
+        if length > MAX_LINE_LENGTH:
+            return MAX_LINE_LENGTH, "E501 line too long (%d characters)" % length
 
 
 ##############################################################################
@@ -259,9 +334,7 @@ def maximum_line_length(physical_line):
 ##############################################################################
 
 
-def blank_lines(logical_line, blank_lines, indent_level, line_number,
-                previous_logical, previous_indent_level,
-                blank_lines_before_comment):
+class blank_lines(Check):
     r"""
     Separate top-level function and class definitions with two blank lines.
 
@@ -282,26 +355,31 @@ def blank_lines(logical_line, blank_lines, indent_level, line_number,
     E303: def a():\n\n\n\n    pass
     E304: @decorator\n\ndef a():\n    pass
     """
-    if line_number == 1:
-        return  # Don't expect blank lines before the first line
-    max_blank_lines = max(blank_lines, blank_lines_before_comment)
-    if previous_logical.startswith('@'):
-        if max_blank_lines:
-            return 0, "E304 blank lines found after function decorator"
-    elif max_blank_lines > 2 or (indent_level and max_blank_lines == 2):
-        return 0, "E303 too many blank lines (%d)" % max_blank_lines
-    elif (logical_line.startswith('def ') or
-          logical_line.startswith('class ') or
-          logical_line.startswith('@')):
-        if indent_level:
-            if not (max_blank_lines or previous_indent_level < indent_level or
-                    DOCSTRING_REGEX.match(previous_logical)):
-                return 0, "E301 expected 1 blank line, found 0"
-        elif max_blank_lines != 2:
-            return 0, "E302 expected 2 blank lines, found %d" % max_blank_lines
+    codes = ['E301', 'E302', 'E303', 'E304']
+
+    def check(self, logical_line, blank_lines, indent_level, line_number,
+                    previous_logical, previous_indent_level,
+                    blank_lines_before_comment):
+        if line_number == 1:
+            return  # Don't expect blank lines before the first line
+        max_blank_lines = max(blank_lines, blank_lines_before_comment)
+        if previous_logical.startswith('@'):
+            if max_blank_lines:
+                return 0, "E304 blank lines found after function decorator"
+        elif max_blank_lines > 2 or (indent_level and max_blank_lines == 2):
+            return 0, "E303 too many blank lines (%d)" % max_blank_lines
+        elif (logical_line.startswith('def ') or
+              logical_line.startswith('class ') or
+              logical_line.startswith('@')):
+            if indent_level:
+                if not (max_blank_lines or previous_indent_level < indent_level or
+                        DOCSTRING_REGEX.match(previous_logical)):
+                    return 0, "E301 expected 1 blank line, found 0"
+            elif max_blank_lines != 2:
+                return 0, "E302 expected 2 blank lines, found %d" % max_blank_lines
 
 
-def extraneous_whitespace(logical_line):
+class extraneous_whitespace(Check):
     """
     Avoid extraneous whitespace in the following situations:
 
@@ -321,21 +399,24 @@ def extraneous_whitespace(logical_line):
     E203: if x == 4: print x, y ; x, y = y, x
     E203: if x == 4 : print x, y; x, y = y, x
     """
-    line = logical_line
-    for match in EXTRANEOUS_WHITESPACE_REGEX.finditer(line):
-        text = match.group()
-        char = text.strip()
-        found = match.start()
-        if text == char + ' ' and char in '([{':
-            return found + 1, "E201 whitespace after '%s'" % char
-        if text == ' ' + char and line[found - 1] != ',':
-            if char in '}])':
-                return found, "E202 whitespace before '%s'" % char
-            if char in ',;:':
-                return found, "E203 whitespace before '%s'" % char
+    codes = ['E201', 'E202', 'E203']
+
+    def check(self, logical_line):
+        line = logical_line
+        for match in EXTRANEOUS_WHITESPACE_REGEX.finditer(line):
+            text = match.group()
+            char = text.strip()
+            found = match.start()
+            if text == char + ' ' and char in '([{':
+                return found + 1, "E201 whitespace after '%s'" % char
+            if text == ' ' + char and line[found - 1] != ',':
+                if char in '}])':
+                    return found, "E202 whitespace before '%s'" % char
+                if char in ',;:':
+                    return found, "E203 whitespace before '%s'" % char
 
 
-def missing_whitespace(logical_line):
+class missing_whitespace(Check):
     """
     JCR: Each comma, semicolon or colon should be followed by whitespace.
 
@@ -348,20 +429,22 @@ def missing_whitespace(logical_line):
     E231: ['a','b']
     E231: foo(bar,baz)
     """
-    line = logical_line
-    for index in range(len(line) - 1):
-        char = line[index]
-        if char in ',;:' and line[index + 1] not in WHITESPACE:
-            before = line[:index]
-            if char == ':' and before.count('[') > before.count(']'):
-                continue  # Slice syntax, no space required
-            if char == ',' and line[index + 1] == ')':
-                continue  # Allow tuple with only one element: (3,)
-            return index, "E231 missing whitespace after '%s'" % char
+    codes = ['E231']
+
+    def check(self, logical_line):
+        line = logical_line
+        for index in range(len(line) - 1):
+            char = line[index]
+            if char in ',;:' and line[index + 1] not in WHITESPACE:
+                before = line[:index]
+                if char == ':' and before.count('[') > before.count(']'):
+                    continue  # Slice syntax, no space required
+                if char == ',' and line[index + 1] == ')':
+                    continue  # Allow tuple with only one element: (3,)
+                return index, "E231 missing whitespace after '%s'" % char
 
 
-def indentation(logical_line, previous_logical, indent_char,
-                indent_level, previous_indent_level):
+class indentation(Check):
     r"""
     Use 4 spaces per indentation level.
 
@@ -378,16 +461,20 @@ def indentation(logical_line, previous_logical, indent_char,
     Okay: a = 1\nb = 2
     E113: a = 1\n    b = 2
     """
-    if indent_char == ' ' and indent_level % 4:
-        return 0, "E111 indentation is not a multiple of four"
-    indent_expect = previous_logical.endswith(':')
-    if indent_expect and indent_level <= previous_indent_level:
-        return 0, "E112 expected an indented block"
-    if indent_level > previous_indent_level and not indent_expect:
-        return 0, "E113 unexpected indentation"
+    codes = ['E111', 'E112', 'E113']
+
+    def check(self, logical_line, previous_logical, indent_char,
+                    indent_level, previous_indent_level):
+        if indent_char == ' ' and indent_level % 4:
+            return 0, "E111 indentation is not a multiple of four"
+        indent_expect = previous_logical.endswith(':')
+        if indent_expect and indent_level <= previous_indent_level:
+            return 0, "E112 expected an indented block"
+        if indent_level > previous_indent_level and not indent_expect:
+            return 0, "E113 unexpected indentation"
 
 
-def whitespace_before_parameters(logical_line, tokens):
+class whitespace_before_parameters(Check):
     """
     Avoid extraneous whitespace in the following situations:
 
@@ -404,26 +491,29 @@ def whitespace_before_parameters(logical_line, tokens):
     E211: dict ['key'] = list[index]
     E211: dict['key'] = list [index]
     """
-    prev_type = tokens[0][0]
-    prev_text = tokens[0][1]
-    prev_end = tokens[0][3]
-    for index in range(1, len(tokens)):
-        token_type, text, start, end, line = tokens[index]
-        if (token_type == tokenize.OP and
-            text in '([' and
-            start != prev_end and
-            (prev_type == tokenize.NAME or prev_text in '}])') and
-            # Syntax "class A (B):" is allowed, but avoid it
-            (index < 2 or tokens[index - 2][1] != 'class') and
-            # Allow "return (a.foo for a in range(5))"
-            (not keyword.iskeyword(prev_text))):
-            return prev_end, "E211 whitespace before '%s'" % text
-        prev_type = token_type
-        prev_text = text
-        prev_end = end
+    codes = ['E211']
+
+    def check(self, logical_line, tokens):
+        prev_type = tokens[0][0]
+        prev_text = tokens[0][1]
+        prev_end = tokens[0][3]
+        for index in range(1, len(tokens)):
+            token_type, text, start, end, line = tokens[index]
+            if (token_type == tokenize.OP and
+                text in '([' and
+                start != prev_end and
+                (prev_type == tokenize.NAME or prev_text in '}])') and
+                # Syntax "class A (B):" is allowed, but avoid it
+                (index < 2 or tokens[index - 2][1] != 'class') and
+                # Allow "return (a.foo for a in range(5))"
+                (not keyword.iskeyword(prev_text))):
+                return prev_end, "E211 whitespace before '%s'" % text
+            prev_type = token_type
+            prev_text = text
+            prev_end = end
 
 
-def whitespace_around_operator(logical_line):
+class whitespace_around_operator(Check):
     """
     Avoid extraneous whitespace in the following situations:
 
@@ -436,19 +526,22 @@ def whitespace_around_operator(logical_line):
     E223: a = 4\t+ 5
     E224: a = 4 +\t5
     """
-    for match in WHITESPACE_AROUND_OPERATOR_REGEX.finditer(logical_line):
-        before, whitespace, after = match.groups()
-        tab = whitespace == '\t'
-        offset = match.start(2)
-        if before in OPERATORS:
-            return offset, (tab and "E224 tab after operator" or
-                            "E222 multiple spaces after operator")
-        elif after in OPERATORS:
-            return offset, (tab and "E223 tab before operator" or
-                            "E221 multiple spaces before operator")
+    codes = ['E221', 'E222', 'E223', 'E224']
+
+    def check(self, logical_line):
+        for match in WHITESPACE_AROUND_OPERATOR_REGEX.finditer(logical_line):
+            before, whitespace, after = match.groups()
+            tab = whitespace == '\t'
+            offset = match.start(2)
+            if before in OPERATORS:
+                return offset, (tab and "E224 tab after operator" or
+                                "E222 multiple spaces after operator")
+            elif after in OPERATORS:
+                return offset, (tab and "E223 tab before operator" or
+                                "E221 multiple spaces before operator")
 
 
-def missing_whitespace_around_operator(logical_line, tokens):
+class missing_whitespace_around_operator(Check):
     r"""
     - Always surround these binary operators with a single space on
       either side: assignment (=), augmented assignment (+=, -= etc.),
@@ -478,51 +571,54 @@ def missing_whitespace_around_operator(logical_line, tokens):
     E225: c = alpha -4
     E225: z = x **y
     """
-    parens = 0
-    need_space = False
-    prev_type = tokenize.OP
-    prev_text = prev_end = None
-    for token_type, text, start, end, line in tokens:
-        if token_type in (tokenize.NL, tokenize.NEWLINE, tokenize.ERRORTOKEN):
-            # ERRORTOKEN is triggered by backticks in Python 3000
-            continue
-        if text in ('(', 'lambda'):
-            parens += 1
-        elif text == ')':
-            parens -= 1
-        if need_space:
-            if start != prev_end:
-                need_space = False
-            elif text == '>' and prev_text == '<':
-                # Tolerate the "<>" operator, even if running Python 3
-                pass
-            else:
-                return prev_end, "E225 missing whitespace around operator"
-        elif token_type == tokenize.OP and prev_end is not None:
-            if text == '=' and parens:
-                # Allow keyword args or defaults: foo(bar=None).
-                pass
-            elif text in BINARY_OPERATORS:
-                need_space = True
-            elif text in UNARY_OPERATORS:
-                # Allow unary operators: -123, -x, +1.
-                # Allow argument unpacking: foo(*args, **kwargs).
-                if prev_type == tokenize.OP:
-                    if prev_text in '}])':
-                        need_space = True
-                elif prev_type == tokenize.NAME:
-                    if prev_text not in E225NOT_KEYWORDS:
-                        need_space = True
+    codes = ['E225']
+
+    def check(self, logical_line, tokens):
+        parens = 0
+        need_space = False
+        prev_type = tokenize.OP
+        prev_text = prev_end = None
+        for token_type, text, start, end, line in tokens:
+            if token_type in (tokenize.NL, tokenize.NEWLINE, tokenize.ERRORTOKEN):
+                # ERRORTOKEN is triggered by backticks in Python 3000
+                continue
+            if text in ('(', 'lambda'):
+                parens += 1
+            elif text == ')':
+                parens -= 1
+            if need_space:
+                if start != prev_end:
+                    need_space = False
+                elif text == '>' and prev_text == '<':
+                    # Tolerate the "<>" operator, even if running Python 3
+                    pass
                 else:
+                    return prev_end, "E225 missing whitespace around operator"
+            elif token_type == tokenize.OP and prev_end is not None:
+                if text == '=' and parens:
+                    # Allow keyword args or defaults: foo(bar=None).
+                    pass
+                elif text in BINARY_OPERATORS:
                     need_space = True
-            if need_space and start == prev_end:
-                return prev_end, "E225 missing whitespace around operator"
-        prev_type = token_type
-        prev_text = text
-        prev_end = end
+                elif text in UNARY_OPERATORS:
+                    # Allow unary operators: -123, -x, +1.
+                    # Allow argument unpacking: foo(*args, **kwargs).
+                    if prev_type == tokenize.OP:
+                        if prev_text in '}])':
+                            need_space = True
+                    elif prev_type == tokenize.NAME:
+                        if prev_text not in E225NOT_KEYWORDS:
+                            need_space = True
+                    else:
+                        need_space = True
+                if need_space and start == prev_end:
+                    return prev_end, "E225 missing whitespace around operator"
+            prev_type = token_type
+            prev_text = text
+            prev_end = end
 
 
-def whitespace_around_comma(logical_line):
+class whitespace_around_comma(Check):
     """
     Avoid extraneous whitespace in the following situations:
 
@@ -536,17 +632,20 @@ def whitespace_around_comma(logical_line):
     E241: a = (1,  2)
     E242: a = (1,\t2)
     """
-    line = logical_line
-    for separator in ',;:':
-        found = line.find(separator + '  ')
-        if found > -1:
-            return found + 1, "E241 multiple spaces after '%s'" % separator
-        found = line.find(separator + '\t')
-        if found > -1:
-            return found + 1, "E242 tab after '%s'" % separator
+    codes = ['E241']
+
+    def check(self, logical_line):
+        line = logical_line
+        for separator in ',;:':
+            found = line.find(separator + '  ')
+            if found > -1:
+                return found + 1, "E241 multiple spaces after '%s'" % separator
+            found = line.find(separator + '\t')
+            if found > -1:
+                return found + 1, "E242 tab after '%s'" % separator
 
 
-def whitespace_around_named_parameter_equals(logical_line):
+class whitespace_around_named_parameter_equals(Check):
     """
     Don't use spaces around the '=' sign when used to indicate a
     keyword argument or a default parameter value.
@@ -561,20 +660,23 @@ def whitespace_around_named_parameter_equals(logical_line):
     E251: def complex(real, imag = 0.0):
     E251: return magic(r = real, i = imag)
     """
-    parens = 0
-    for match in WHITESPACE_AROUND_NAMED_PARAMETER_REGEX.finditer(
-            logical_line):
-        text = match.group()
-        if parens and len(text) == 3:
-            issue = "E251 no spaces around keyword / parameter equals"
-            return match.start(), issue
-        if text == '(':
-            parens += 1
-        elif text == ')':
-            parens -= 1
+    codes = ['E251']
+
+    def check(self, logical_line):
+        parens = 0
+        for match in WHITESPACE_AROUND_NAMED_PARAMETER_REGEX.finditer(
+                logical_line):
+            text = match.group()
+            if parens and len(text) == 3:
+                issue = "E251 no spaces around keyword / parameter equals"
+                return match.start(), issue
+            if text == '(':
+                parens += 1
+            elif text == ')':
+                parens -= 1
 
 
-def whitespace_before_inline_comment(logical_line, tokens):
+class whitespace_before_inline_comment(Check):
     """
     Separate inline comments by at least two spaces.
 
@@ -588,24 +690,27 @@ def whitespace_before_inline_comment(logical_line, tokens):
     E262: x = x + 1  #Increment x
     E262: x = x + 1  #  Increment x
     """
-    prev_end = (0, 0)
-    for token_type, text, start, end, line in tokens:
-        if token_type == tokenize.NL:
-            continue
-        if token_type == tokenize.COMMENT:
-            if not line[:start[1]].strip():
+    CODES = ['E261', 'E262']
+
+    def check(self, logical_line, tokens):
+        prev_end = (0, 0)
+        for token_type, text, start, end, line in tokens:
+            if token_type == tokenize.NL:
                 continue
-            if prev_end[0] == start[0] and start[1] < prev_end[1] + 2:
-                return (prev_end,
-                        "E261 at least two spaces before inline comment")
-            if (len(text) > 1 and text.startswith('#  ')
-                           or not text.startswith('# ')):
-                return start, "E262 inline comment should start with '# '"
-        else:
-            prev_end = end
+            if token_type == tokenize.COMMENT:
+                if not line[:start[1]].strip():
+                    continue
+                if prev_end[0] == start[0] and start[1] < prev_end[1] + 2:
+                    return (prev_end,
+                            "E261 at least two spaces before inline comment")
+                if (len(text) > 1 and text.startswith('#  ')
+                               or not text.startswith('# ')):
+                    return start, "E262 inline comment should start with '# '"
+            else:
+                prev_end = end
 
 
-def imports_on_separate_lines(logical_line):
+class imports_on_separate_lines(Check):
     r"""
     Imports should usually be on separate lines.
 
@@ -618,14 +723,17 @@ def imports_on_separate_lines(logical_line):
     Okay: import myclass
     Okay: import foo.bar.yourclass
     """
-    line = logical_line
-    if line.startswith('import '):
-        found = line.find(',')
-        if found > -1:
-            return found, "E401 multiple imports on one line"
+    codes = ['E401']
+
+    def check(self, logical_line):
+        line = logical_line
+        if line.startswith('import '):
+            found = line.find(',')
+            if found > -1:
+                return found, "E401 multiple imports on one line"
 
 
-def compound_statements(logical_line):
+class compound_statements(Check):
     r"""
     Compound statements (multiple statements on the same line) are
     generally discouraged.
@@ -650,20 +758,23 @@ def compound_statements(logical_line):
 
     E702: do_one(); do_two(); do_three()
     """
-    line = logical_line
-    found = line.find(':')
-    if -1 < found < len(line) - 1:
-        before = line[:found]
-        if (before.count('{') <= before.count('}') and  # {'a': 1} (dict)
-            before.count('[') <= before.count(']') and  # [1:2] (slice)
-            not re.search(r'\blambda\b', before)):      # lambda x: x
-            return found, "E701 multiple statements on one line (colon)"
-    found = line.find(';')
-    if -1 < found:
-        return found, "E702 multiple statements on one line (semicolon)"
+    codes = ['E701', 'E702']
+
+    def check(self, logical_line):
+        line = logical_line
+        found = line.find(':')
+        if -1 < found < len(line) - 1:
+            before = line[:found]
+            if (before.count('{') <= before.count('}') and  # {'a': 1} (dict)
+                before.count('[') <= before.count(']') and  # [1:2] (slice)
+                not re.search(r'\blambda\b', before)):      # lambda x: x
+                return found, "E701 multiple statements on one line (colon)"
+        found = line.find(';')
+        if -1 < found:
+            return found, "E702 multiple statements on one line (semicolon)"
 
 
-def python_3000_has_key(logical_line):
+class python_3000_has_key(Check):
     """
     The {}.has_key() method will be removed in the future version of
     Python. Use the 'in' operation instead, like:
@@ -671,12 +782,15 @@ def python_3000_has_key(logical_line):
     if "b" in d:
         print d["b"]
     """
-    pos = logical_line.find('.has_key(')
-    if pos > -1:
-        return pos, "W601 .has_key() is deprecated, use 'in'"
+    codes = ['W601']
+
+    def check(self, logical_line):
+        pos = logical_line.find('.has_key(')
+        if pos > -1:
+            return pos, "W601 .has_key() is deprecated, use 'in'"
 
 
-def python_3000_raise_comma(logical_line):
+class python_3000_raise_comma(Check):
     """
     When raising an exception, use "raise ValueError('message')"
     instead of the older form "raise ValueError, 'message'".
@@ -686,30 +800,39 @@ def python_3000_raise_comma(logical_line):
     continuation characters thanks to the containing parentheses.  The older
     form will be removed in Python 3000.
     """
-    match = RAISE_COMMA_REGEX.match(logical_line)
-    if match:
-        return match.start(1), "W602 deprecated form of raising exception"
+    codes = ['W602']
+
+    def check(self, logical_line):
+        match = RAISE_COMMA_REGEX.match(logical_line)
+        if match:
+            return match.start(1), "W602 deprecated form of raising exception"
 
 
-def python_3000_not_equal(logical_line):
+class python_3000_not_equal(Check):
     """
     != can also be written <>, but this is an obsolete usage kept for
     backwards compatibility only. New code should always use !=.
     The older syntax is removed in Python 3000.
     """
-    pos = logical_line.find('<>')
-    if pos > -1:
-        return pos, "W603 '<>' is deprecated, use '!='"
+    codes = ['W603']
+
+    def check(self, logical_line):
+        pos = logical_line.find('<>')
+        if pos > -1:
+            return pos, "W603 '<>' is deprecated, use '!='"
 
 
-def python_3000_backticks(logical_line):
+class python_3000_backticks(Check):
     """
     Backticks are removed in Python 3000.
     Use repr() instead.
     """
-    pos = logical_line.find('`')
-    if pos > -1:
-        return pos, "W604 backticks are deprecated, use 'repr()'"
+    codes = ['W604']
+
+    def check(self, logical_line):
+        pos = logical_line.find('`')
+        if pos > -1:
+            return pos, "W604 backticks are deprecated, use 'repr()'"
 
 
 ##############################################################################
@@ -793,26 +916,6 @@ def message(text):
 ##############################################################################
 
 
-def find_checks(argument_name):
-    """
-    Find all globally visible functions where the first argument name
-    starts with argument_name.
-    """
-    checks = []
-    for name, function in globals().items():
-        if not inspect.isfunction(function):
-            continue
-        args = inspect.getargspec(function)[0]
-        if args and args[0].startswith(argument_name):
-            codes = ERRORCODE_REGEX.findall(inspect.getdoc(function) or '')
-            for code in codes or ['']:
-                if not code or not ignore_code(code):
-                    checks.append((name, function, args))
-                    break
-    checks.sort()
-    return checks
-
-
 class Checker(object):
     """
     Load a Python source file, tokenize it, check coding style.
@@ -835,9 +938,9 @@ class Checker(object):
                 write_filename = "fixed_" + filename
             self.writer = open(write_filename, "w")
             if not options.inplace:
-                report_fix(write_filename + " created.")
+                self._report_fix(write_filename + " created.")
             else:
-                report_fix("modifying " + filename + " in place.")
+                self._report_fix("modifying " + filename + " in place.")
 
     def readline(self):
         """
@@ -865,7 +968,7 @@ class Checker(object):
         arguments = []
         for name in argument_names:
             arguments.append(getattr(self, name))
-        return check(*arguments)
+        return check.check(*arguments)
 
     def check_physical(self, line):
         """
@@ -879,8 +982,8 @@ class Checker(object):
             if result is not None:
                 offset, text = result
                 self.report_error(self.line_number, offset, text, check)
-                if options.fix:
-                    fix_line(self, check)
+                if options.fix and hasattr(check, 'fix'):
+                    check.fix(self)
         if options.fix:
             self.writer.write(self.physical_line)
 
@@ -1032,50 +1135,13 @@ class Checker(object):
                 message(check.__doc__.lstrip('\n').rstrip())
 
 
-def report_fix(s):
-    """
-    Prints out a message when something has been fixed
-    using fix_line(). Doesn't print if the --quiet flag
-    was specified.
-    """
-    if not options.quiet:
-        print " - pep8 fix:", s
-
-
-def fix_line(checker, check):
-    """
-    Given a Checker object and a check function,
-    fixes the line in the Checker object if it knows how.
-    This function only runs if the --fix flag is used.
-    """
-    # change tabs to 4 spaces
-    if check is tabs_obsolete:
-        checker.physical_line = checker.physical_line.replace("\t", "    ")
-        report_fix("tab converted to 4 spaces.")
-
-    # add newline to end of file
-    if check is missing_newline:
-        checker.physical_line += "\n"
-        report_fix("newline added to end of file.")
-
-    # remove whitespace from end of line
-    if check is trailing_whitespace:
-        checker.physical_line = re.sub(r' *$', "", checker.physical_line)
-        report_fix("whitespace stripped from end of line.")
-
-    # remove superfluous blank lines from end of file
-    if check is trailing_blank_lines:
-        checker.physical_line = ""
-        report_fix("superfluous trailing blank line removed from end of file.")
-
-
 def input_file(filename):
     """
     Run all checks on a Python source file.
     """
     if options.verbose:
         message('checking ' + filename)
-    errors = Checker(filename).check_all()
+    Checker(filename).check_all()
 
 
 def input_dir(dirname, runner=None):
