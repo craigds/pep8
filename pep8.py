@@ -965,6 +965,7 @@ class Checker(object):
         if line:
             self.check_physical(line)
             return line
+        return line
 
     def check_physical(self, line):
         """
