@@ -161,10 +161,6 @@ class Check(object):
 
     codes = []
 
-    def _report_fix(self, s):
-        if not options.quiet:
-            print " - pep8 fix:", s
-
 
 def find_checks(argument_name):
     """
@@ -228,7 +224,7 @@ class tabs_obsolete(Check):
 
     def fix(self, checker):
         checker.physical_line = checker.physical_line.replace("\t", "    ")
-        self._report_fix("tab converted to 4 spaces.")
+        checker.report_fix("tab converted to 4 spaces.")
 
 
 class trailing_whitespace(Check):
@@ -265,7 +261,7 @@ class trailing_whitespace(Check):
 
     def fix(self, checker):
         checker.physical_line = re.sub(r' *$', "", checker.physical_line)
-        self._report_fix("whitespace stripped from end of line.")
+        checker.report_fix("whitespace stripped from end of line.")
 
 
 class trailing_blank_lines(Check):
@@ -283,7 +279,7 @@ class trailing_blank_lines(Check):
 
     def fix(self, checker):
         checker.physical_line = ""
-        self._report_fix("superfluous trailing blank line removed from end of file.")
+        checker.report_fix("superfluous trailing blank line removed from end of file.")
 
 
 class missing_newline(Check):
@@ -298,7 +294,7 @@ class missing_newline(Check):
 
     def fix(self, checker):
         checker.physical_line += "\n"
-        self._report_fix("newline added to end of file.")
+        checker.report_fix("newline added to end of file.")
 
 
 class maximum_line_length(Check):
@@ -938,9 +934,13 @@ class Checker(object):
                 write_filename = "fixed_" + filename
             self.writer = open(write_filename, "w")
             if not options.inplace:
-                self._report_fix(write_filename + " created.")
+                self.report_fix(write_filename + " created.")
             else:
-                self._report_fix("modifying " + filename + " in place.")
+                self.report_fix("modifying " + filename + " in place.")
+
+    def report_fix(self, msg):
+        if not options.quiet:
+            print " - pep8 fix:", msg
 
     def readline(self):
         """
