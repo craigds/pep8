@@ -987,7 +987,9 @@ class Checker(object):
                 offset, text = result
                 self.report_error(self.line_number, offset, text, check)
                 if options.fix and hasattr(check, 'fix'):
-                    self.physical_line = check.fix(self, *args)
+                    code = text[:4]
+                    if not ignore_code(code):
+                        self.physical_line = check.fix(self, *args)
         if options.fix:
             self.writer.write(self.physical_line)
 
@@ -1056,7 +1058,9 @@ class Checker(object):
                 self.report_error(original_number, original_offset,
                                   text, check)
                 if options.fix and hasattr(check, 'fix'):
-                    check.fix(self, *args)
+                    code = text[:4]
+                    if not ignore_code(code):
+                        check.fix(self, *args)
         self.previous_logical = self.logical_line
 
     def check_all(self, expected=None, line_offset=0):
