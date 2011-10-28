@@ -270,7 +270,7 @@ class trailing_whitespace(Check):
                 return 0, "W293 blank line contains whitespace"
 
     def fix(self, checker, physical_line):
-        fixed = re.sub(r' *$', "", physical_line)
+        fixed = re.sub(r'[ \n\r\t]+$', "\n", physical_line)
         checker.report_fix("whitespace stripped from end of line.", physical_line, fixed)
         return fixed
 
