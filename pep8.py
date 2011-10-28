@@ -30,7 +30,7 @@ For usage and a list of options, try this:
 $ python pep8.py -h
 
 This program and its regression test suite live here:
-http://github.com/jcrocholl/pep8
+http://github.com/craigds/pep8
 
 Groups of errors and warnings:
 E errors
@@ -44,8 +44,8 @@ W warnings
 700 statements
 
 You can add checks to this program by writing plugins. Each plugin is
-a simple function that is called for each line of source code, either
-physical or logical.
+a sublcass of Check with a check() method that is called for each line
+of source code, either physical or logical.
 
 Physical line:
 - Raw line of text from the input file.
@@ -57,13 +57,13 @@ Logical line:
 - Comments removed.
 
 The check function requests physical or logical lines by the name of
-the first argument:
+the first non-self argument to check():
 
-def maximum_line_length(physical_line)
-def extraneous_whitespace(logical_line)
-def blank_lines(logical_line, blank_lines, indent_level, line_number)
+class blank_lines(Check):
+    def check(self, logical_line, blank_lines, indent_level, line_number):
+        # ...
 
-The last example above demonstrates how check plugins can request
+The example above also demonstrates how check plugins can request
 additional information with extra arguments. All attributes of the
 Checker object are available. Some examples:
 
@@ -76,7 +76,7 @@ indent_level: indentation (with tabs expanded to multiples of 8)
 previous_indent_level: indentation on previous line
 previous_logical: previous logical line
 
-The docstring of each check function shall be the relevant part of
+The docstring of each check object shall be the relevant part of
 text from PEP 8. It is printed if the user enables --show-pep8.
 Several docstrings contain examples directly from the PEP 8 document.
 
@@ -84,7 +84,7 @@ Okay: spam(ham[1], {eggs: 2})
 E201: spam( ham[1], {eggs: 2})
 
 These examples are verified automatically when pep8.py is run with the
---doctest option. You can add examples for your own check functions.
+--doctest option. You can add examples for your own check objects.
 The format is simple: "Okay" or error/warning code followed by colon
 and space, the rest of the line is example source code. If you put 'r'
 before the docstring, you can use \n for newline, \t for tab and \s
