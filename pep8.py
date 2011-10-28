@@ -32,6 +32,8 @@ $ python pep8.py -h
 This program and its regression test suite live here:
 http://github.com/craigds/pep8
 
+http://github.com/jcrocholl/pep8
+
 Groups of errors and warnings:
 E errors
 W warnings
@@ -114,18 +116,19 @@ DEFAULT_IGNORE = 'E24'
 MAX_LINE_LENGTH = 79
 
 INDENT_REGEX = re.compile(r'^([ \t]*)')
-RAISE_COMMA_REGEX = re.compile(r'raise\s+\w+\s*(,)')
+RAISE_COMMA_REGEX = re.compile(r'raise\s+(\w+)\s*,\s*(.*)\s*')
 SELFTEST_REGEX = re.compile(r'(Okay|[EW]\d{3}):\s(.*)')
 ERRORCODE_REGEX = re.compile(r'[EW]\d{3}')
 DOCSTRING_REGEX = re.compile(r'u?r?["\']')
 WHITESPACE_AROUND_OPERATOR_REGEX = \
     re.compile('([^\w\s]*)\s*(\t|  )\s*([^\w\s]*)')
-EXTRANEOUS_WHITESPACE_REGEX = re.compile(r'[[({] | []}),;:]')
+EXTRANEOUS_WHITESPACE_REGEX = re.compile(r'[\[\(\{] | [\]\}\)\,\;\:]+')
 WHITESPACE_AROUND_NAMED_PARAMETER_REGEX = \
     re.compile(r'[()]|\s=[^=]|[^=!<>]=\s')
 
 
 WHITESPACE = ' \t'
+TAB_SIZE = 4
 
 BINARY_OPERATORS = frozenset(['**=', '*=', '+=', '-=', '!=', '<>',
     '%=', '^=', '&=', '|=', '==', '/=', '//=', '<=', '>=', '<<=', '>>=',
@@ -208,8 +211,9 @@ class tabs_or_spaces(Check):
 
     def fix(self, checker, physical_line, indent_char):
         indent = INDENT_REGEX.match(physical_line).group(1)
-        fixed_indent = indent.replace('\t', '    ')
-        checker.physical_line = fixed_indent + physical_line[len(indent):]
+        fixed = indent.replace('\t', '    ') + physical_line[len(indent):]
+        checker.report_fix("mixed tabs and spaces converted to all spaces.", physical_line, fixed)
+        return fixed
 
 
 class tabs_obsolete(Check):
@@ -228,8 +232,9 @@ class tabs_obsolete(Check):
             return indent.index('\t'), "W191 indentation contains tabs"
 
     def fix(self, checker, physical_line):
-        checker.physical_line = physical_line.replace("\t", "    ")
-        checker.report_fix("tab converted to 4 spaces.")
+        fixed = physical_line.replace("\t", "    ")
+        checker.report_fix("tab converted to 4 spaces.", physical_line, fixed)
+        return fixed
 
 
 class trailing_whitespace(Check):
@@ -265,8 +270,9 @@ class trailing_whitespace(Check):
                 return 0, "W293 blank line contains whitespace"
 
     def fix(self, checker, physical_line):
-        checker.physical_line = re.sub(r' *$', "", physical_line)
-        checker.report_fix("whitespace stripped from end of line.")
+        fixed = re.sub(r' *$', "", physical_line)
+        checker.report_fix("whitespace stripped from end of line.", physical_line, fixed)
+        return fixed
 
 
 class trailing_blank_lines(Check):
@@ -283,8 +289,9 @@ class trailing_blank_lines(Check):
             return 0, "W391 blank line at end of file"
 
     def fix(self, checker, physical_line, lines, line_number):
-        checker.physical_line = ""
-        checker.report_fix("superfluous trailing blank line removed from end of file.")
+        fixed = ''
+        checker.report_fix("superfluous trailing blank line removed from end of file.", physical_line, fixed)
+        return fixed
 
 
 class missing_newline(Check):
@@ -298,8 +305,9 @@ class missing_newline(Check):
             return len(physical_line), "W292 no newline at end of file"
 
     def fix(self, checker, physical_line):
-        checker.physical_line += "\n"
-        checker.report_fix("newline added to end of file.")
+        fixed = physical_line + "\n"
+        checker.report_fix("newline added to end of file.", physical_line, fixed)
+        return fixed
 
 
 class maximum_line_length(Check):
@@ -854,25 +862,25 @@ else:
 
 
 def expand_indent(line):
-    """
+    r"""
     Return the amount of indentation.
-    Tabs are expanded to the next multiple of 8.
+    Tabs are expanded to the next multiple of TAB_SIZE.
 
     >>> expand_indent('    ')
     4
-    >>> expand_indent('\\t')
+    >>> expand_indent('\t')
+    4
+    >>> expand_indent('    \t')
     8
-    >>> expand_indent('    \\t')
+    >>> expand_indent('       \t')
     8
-    >>> expand_indent('       \\t')
-    8
-    >>> expand_indent('        \\t')
-    16
+    >>> expand_indent('        \t')
+    12
     """
     result = 0
     for char in line:
         if char == '\t':
-            result = result // 8 * 8 + 8
+            result = result // TAB_SIZE * TAB_SIZE + TAB_SIZE
         elif char == ' ':
             result += 1
         else:
@@ -938,14 +946,12 @@ class Checker(object):
             else:
                 write_filename = "fixed_" + filename
             self.writer = open(write_filename, "w")
-            if not options.inplace:
-                self.report_fix(write_filename + " created.")
-            else:
-                self.report_fix("modifying " + filename + " in place.")
 
-    def report_fix(self, msg):
+    def report_fix(self, msg, old, new):
         if not options.quiet:
-            print " - pep8 fix:", msg
+            old = '\t-' + '\n\t-'.join(old.split('\n'))
+            new = '\t+' + '\n\t+'.join(new.split('\n'))
+            print " - pep8 fix: %s\n%s\n%s" % (msg, old, new)
 
     def readline(self):
         """
@@ -981,7 +987,7 @@ class Checker(object):
                 offset, text = result
                 self.report_error(self.line_number, offset, text, check)
                 if options.fix and hasattr(check, 'fix'):
-                    check.fix(self, *args)
+                    self.physical_line = check.fix(self, *args)
         if options.fix:
             self.writer.write(self.physical_line)
 
