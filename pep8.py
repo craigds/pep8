@@ -949,9 +949,9 @@ class Checker(object):
 
     def report_fix(self, msg, old, new):
         if not options.quiet:
-            old = '\t-' + '\n\t-'.join(old.split('\n'))
-            new = '\t+' + '\n\t+'.join(new.split('\n'))
-            print " - pep8 fix: %s\n%s\n%s" % (msg, old, new)
+            old = old.replace('\n', '\\n')
+            new = new.replace('\n', '\\n')
+            print " - pep8 fix: %s\n\t-%s\n\t+%s" % (msg, old, new)
 
     def readline(self):
         """
