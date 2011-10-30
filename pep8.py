@@ -1025,6 +1025,7 @@ class Checker(object):
             if token_type in SKIP_TOKENS:
                 continue
             if token_type == tokenize.STRING:
+                self.muted_strings.append(text)
                 text = mute_string(text)
             if previous:
                 end_line, end = previous[3]
@@ -1052,6 +1053,7 @@ class Checker(object):
         Build a line from tokens and run all logical checks on it.
         """
         options.counters['logical lines'] += 1
+        self.muted_strings = []
         self.build_tokens_line()
         first_line = self.lines[self.mapping[0][1][2][0] - 1]
         indent = first_line[:self.mapping[0][1][2][1]]
@@ -1083,6 +1085,17 @@ class Checker(object):
                         if result is not None:
                             self.logical_line = result
         if options.fix:
+            for muted_string in self.muted_strings:
+                quotes = muted_string[:1]
+                if muted_string[:3] == quotes * 3:
+                    quotes = muted_string[:3]
+                xs = muted_string[:len(quotes)] + 'x' * (len(muted_string) - (2 * len(quotes))) + muted_string[-len(quotes):]
+                self.logical_line = re.sub(
+                    re.escape(xs),
+                    muted_string,
+                    self.logical_line,
+                    count=1,
+                )
             self.writer.write('\n' * self.blank_lines)
             self.writer.write((self.indent_char or '    ') * self.indent_level)
             self.writer.write(self.logical_line + "\n")
