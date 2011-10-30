@@ -387,6 +387,27 @@ class blank_lines(Check):
             elif max_blank_lines != 2:
                 return 0, "E302 expected 2 blank lines, found %d" % max_blank_lines
 
+    def fix(self, checker, logical_line, blank_lines, indent_level, line_number,
+                    previous_logical, previous_indent_level,
+                    blank_lines_before_comment):
+        if line_number == 1:
+            return  # Don't expect blank lines before the first line
+        max_blank_lines = max(blank_lines, blank_lines_before_comment)
+        if previous_logical.startswith('@'):
+            if max_blank_lines:
+                checker.blank_lines = 0
+        elif max_blank_lines > 2 or (indent_level and max_blank_lines == 2):
+            checker.blank_lines = min(max_blank_lines, 2)
+        elif (logical_line.startswith('def ') or
+              logical_line.startswith('class ') or
+              logical_line.startswith('@')):
+            if indent_level:
+                if not (max_blank_lines or previous_indent_level < indent_level or
+                        DOCSTRING_REGEX.match(previous_logical)):
+                    checker.blank_lines = 1
+            elif max_blank_lines != 2:
+                checker.blank_lines = 2
+
 
 class extraneous_whitespace(Check):
     """
