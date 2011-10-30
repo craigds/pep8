@@ -990,8 +990,6 @@ class Checker(object):
                     code = text[:4]
                     if not ignore_code(code):
                         self.physical_line = check.fix(self, *args)
-        if options.fix:
-            self.writer.write(self.physical_line)
 
     def build_tokens_line(self):
         """
@@ -1060,7 +1058,13 @@ class Checker(object):
                 if options.fix and hasattr(check, 'fix'):
                     code = text[:4]
                     if not ignore_code(code):
-                        check.fix(self, *args)
+                        result = check.fix(self, *args)
+                        if result is not None:
+                            self.logical_line = result
+        if options.fix:
+            self.writer.write('\n' * self.blank_lines)
+            self.writer.write((self.indent_char or '    ') * self.indent_level)
+            self.writer.write(self.logical_line + "\n")
         self.previous_logical = self.logical_line
 
     def check_all(self, expected=None, line_offset=0):
