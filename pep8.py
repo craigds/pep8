@@ -1098,13 +1098,18 @@ class Checker(object):
                 )
             self.writer.write('\n' * self.blank_lines)
             self.writer.write((self.indent_char or '    ') * self.indent_level)
-            self.writer.write(self.logical_line + "\n")
+            self.writer.write(self.logical_line)
+            if self.comment:
+                self.writer.write(self.comment)
+                self.comment = None
+            self.writer.write("\n")
         self.previous_logical = self.logical_line
 
     def check_all(self, expected=None, line_offset=0):
         """
         Run all checks on the input file.
         """
+        self.comment = None
         self.expected = expected or ()
         self.line_offset = line_offset
         self.line_number = 0
@@ -1136,6 +1141,9 @@ class Checker(object):
                 self.blank_lines_before_comment = 0
                 self.tokens = []
             if token_type == tokenize.NL and not parens:
+                if self.comment and options.fix:
+                    self.writer.write(self.comment + '\n')
+                    self.comment = None
                 if len(self.tokens) <= 1:
                     # The physical line contains only this token.
                     self.blank_lines += 1
@@ -1152,6 +1160,11 @@ class Checker(object):
                     # Python < 2.6 behaviour, which does not generate NL after
                     # a comment which is on a line by itself.
                     self.tokens = []
+                if len(self.tokens) <= 1:
+                    # comment is on a line by itself
+                    self.comment = source_line.rstrip()
+                else:
+                    self.comment = source_line[self.tokens[-2][3][1]:].rstrip()
         return self.file_errors
 
     def report_error(self, line_number, offset, text, check):
