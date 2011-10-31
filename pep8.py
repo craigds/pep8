@@ -960,6 +960,7 @@ class Checker(object):
             self.lines = readlines(filename)
         else:
             self.lines = lines
+        self.fixed_physical_lines = []
         options.counters['physical lines'] += len(self.lines)
         if options.fix:
             if options.inplace:
@@ -1011,6 +1012,7 @@ class Checker(object):
                     code = text[:4]
                     if not ignore_code(code):
                         self.physical_line = check.fix(self, *args)
+        self.fixed_physical_lines.append(self.physical_line)
 
     def build_tokens_line(self):
         """
@@ -1055,6 +1057,7 @@ class Checker(object):
         options.counters['logical lines'] += 1
         self.muted_strings = []
         self.build_tokens_line()
+        physical_line_numbers = list(sorted(set([mapping_line[1][2][0] - 1 for mapping_line in self.mapping])))
         first_line = self.lines[self.mapping[0][1][2][0] - 1]
         indent = first_line[:self.mapping[0][1][2][1]]
         self.previous_indent_level = self.indent_level
@@ -1085,24 +1088,35 @@ class Checker(object):
                         if result is not None:
                             self.logical_line = result
         if options.fix:
-            for muted_string in self.muted_strings:
-                quotes = muted_string[:1]
-                if muted_string[:3] == quotes * 3:
-                    quotes = muted_string[:3]
-                xs = muted_string[:len(quotes)] + 'x' * (len(muted_string) - (2 * len(quotes))) + muted_string[-len(quotes):]
-                self.logical_line = re.sub(
-                    re.escape(xs),
-                    muted_string,
-                    self.logical_line,
-                    count=1,
-                )
-            self.writer.write('\n' * self.blank_lines)
-            self.writer.write((self.indent_char or '    ') * self.indent_level)
-            self.writer.write(self.logical_line)
-            if self.comment:
-                self.writer.write(self.comment)
-                self.comment = None
-            self.writer.write("\n")
+            if len(physical_line_numbers) == 1:
+                for muted_string in self.muted_strings:
+                    str_modifiers = ''
+                    while muted_string[:1] not in ('"', "'"):
+                        # r'', u'', etc
+                        str_modifiers += muted_string[:1]
+                        muted_string = muted_string[1:]
+                    quotes = muted_string[:1]
+                    if muted_string[:3] == quotes * 3:
+                        quotes = muted_string[:3]
+                    xs = muted_string[:len(quotes)] + 'x' * (len(muted_string) - (2 * len(quotes))) + muted_string[-len(quotes):]
+                    self.logical_line = re.sub(
+                        re.escape(str_modifiers + xs),
+                        str_modifiers + muted_string,
+                        self.logical_line,
+                        count=1,
+                    )
+                self.writer.write('\n' * self.blank_lines)
+                self.writer.write((self.indent_char or '    ') * self.indent_level)
+                self.writer.write(self.logical_line)
+                if self.comment:
+                    self.writer.write(self.comment)
+                    self.comment = None
+                self.writer.write("\n")
+            else:
+                # can't easily fix logical lines that are split over multiple physical lines
+                # because putting the whitespace back how it was isn't easy :(
+                for line_number in physical_line_numbers:
+                    self.writer.write(self.fixed_physical_lines[line_number])
         self.previous_logical = self.logical_line
 
     def check_all(self, expected=None, line_offset=0):
