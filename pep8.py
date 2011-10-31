@@ -1099,6 +1099,7 @@ class Checker(object):
                     if muted_string[:3] == quotes * 3:
                         quotes = muted_string[:3]
                     xs = muted_string[:len(quotes)] + 'x' * (len(muted_string) - (2 * len(quotes))) + muted_string[-len(quotes):]
+                    muted_string = muted_string.replace('\\', '\\\\')
                     self.logical_line = re.sub(
                         re.escape(str_modifiers + xs),
                         str_modifiers + muted_string,
