@@ -135,7 +135,7 @@ BINARY_OPERATORS = frozenset(['**=', '*=', '+=', '-=', '!=', '<>',
     '%',  '^',  '&',  '|',  '=',  '/',  '//',  '<',  '>',  '<<'])
 UNARY_OPERATORS = frozenset(['>>', '**', '*', '+', '-'])
 OPERATORS = BINARY_OPERATORS | UNARY_OPERATORS
-SKIP_TOKENS = frozenset([tokenize.COMMENT, tokenize.NL, tokenize.INDENT,
+SKIP_TOKENS = frozenset([tokenize.NL, tokenize.INDENT,
                          tokenize.DEDENT, tokenize.NEWLINE])
 E225NOT_KEYWORDS = (frozenset(keyword.kwlist + ['print']) -
                     frozenset(['False', 'None', 'True']))
@@ -1110,7 +1110,6 @@ class Checker(object):
                 self.writer.write((self.indent_char or '    ') * self.indent_level)
                 self.writer.write(self.logical_line)
                 if self.comment:
-                    self.writer.write(self.comment)
                     self.comment = None
                 self.writer.write("\n")
             else:
@@ -1175,11 +1174,9 @@ class Checker(object):
                     # Python < 2.6 behaviour, which does not generate NL after
                     # a comment which is on a line by itself.
                     self.tokens = []
-                if len(self.tokens) <= 1:
+                if len(self.tokens) == 1:
                     # comment is on a line by itself
                     self.comment = source_line.rstrip()
-                else:
-                    self.comment = source_line[self.tokens[-2][3][1]:].rstrip()
         return self.file_errors
 
     def report_error(self, line_number, offset, text, check):
