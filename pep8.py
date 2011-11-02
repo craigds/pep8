@@ -1116,6 +1116,7 @@ class Checker(object):
             else:
                 # can't easily fix logical lines that are split over multiple physical lines
                 # because putting the whitespace back how it was isn't easy :(
+                self.writer.write('\n' * self.blank_lines)
                 for line_number in range(physical_line_numbers[0], physical_line_numbers[-1] + 1):
                     self.writer.write(self.fixed_physical_lines[line_number])
         self.previous_logical = self.logical_line
@@ -1158,8 +1159,10 @@ class Checker(object):
                 self.tokens = []
             if token_type == tokenize.NL and not parens:
                 if self.comment and options.fix:
+                    self.writer.write('\n' * self.blank_lines_before_comment)
                     self.writer.write(self.comment + '\n')
                     self.comment = None
+                    self.blank_lines_before_comment = 0
                 if len(self.tokens) <= 1:
                     # The physical line contains only this token.
                     self.blank_lines += 1
