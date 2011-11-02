@@ -1115,7 +1115,7 @@ class Checker(object):
             else:
                 # can't easily fix logical lines that are split over multiple physical lines
                 # because putting the whitespace back how it was isn't easy :(
-                for line_number in physical_line_numbers:
+                for line_number in range(physical_line_numbers[0], physical_line_numbers[-1] + 1):
                     self.writer.write(self.fixed_physical_lines[line_number])
         self.previous_logical = self.logical_line
 
