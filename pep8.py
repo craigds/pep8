@@ -876,6 +876,9 @@ class python_3000_raise_comma(Check):
         if match:
             return match.start(1), "W602 deprecated form of raising exception"
 
+    def fix(self, checker, logical_line):
+        checker.logical_line = RAISE_COMMA_REGEX.sub(lambda match: u'raise %s(%s)' % match.groups(), logical_line)
+
 
 class python_3000_not_equal(Check):
     """
