@@ -446,6 +446,9 @@ class extraneous_whitespace(Check):
                 if char in ',;:':
                     return found, "E203 whitespace before '%s'" % char
 
+    def fix(self, checker, logical_line):
+        checker.logical_line = EXTRANEOUS_WHITESPACE_REGEX.sub(lambda match: match.group().strip(), logical_line)
+
 
 class missing_whitespace(Check):
     """
