@@ -105,6 +105,7 @@ import keyword
 import tokenize
 from optparse import OptionParser
 from fnmatch import fnmatch
+from StringIO import StringIO
 try:
     frozenset
 except NameError:
@@ -962,12 +963,12 @@ class Checker(object):
             self.lines = lines
         self.fixed_physical_lines = []
         options.counters['physical lines'] += len(self.lines)
+        self.write_filename = None
         if options.fix:
             if options.inplace:
-                write_filename = filename
+                self.write_filename = filename
             else:
-                write_filename = "fixed_" + filename
-            self.writer = open(write_filename, "w")
+                self.write_filename = "fixed_" + filename
 
     def report_fix(self, msg, old, new):
         if not options.quiet:
@@ -1134,6 +1135,7 @@ class Checker(object):
         self.blank_lines = 0
         self.blank_lines_before_comment = 0
         self.tokens = []
+        self.writer = StringIO()
         parens = 0
         for token in tokenize.generate_tokens(self.readline_check_physical):
             if options.verbose >= 3:
@@ -1177,6 +1179,11 @@ class Checker(object):
                 if len(self.tokens) == 1:
                     # comment is on a line by itself
                     self.comment = source_line.rstrip()
+        if self.write_filename:
+            write_file = open(self.write_filename, 'w')
+            write_file.write(self.writer.getvalue())
+            write_file.close()
+
         return self.file_errors
 
     def report_error(self, line_number, offset, text, check):
