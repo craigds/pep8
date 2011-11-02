@@ -731,6 +731,19 @@ class whitespace_around_named_parameter_equals(Check):
             elif text == ')':
                 parens -= 1
 
+    def fix(self, checker, logical_line):
+        parens = 0
+        matches = WHITESPACE_AROUND_NAMED_PARAMETER_REGEX.finditer(logical_line)
+        for match in reversed(list(matches)):
+            text = match.group()
+            if parens and len(text) == 3:
+                logical_line = logical_line[:match.start()] + text.strip() + logical_line[match.end():]
+            if text == ')':
+                parens += 1
+            elif text == '(':
+                parens -= 1
+        checker.logical_line = logical_line
+
 
 class whitespace_before_inline_comment(Check):
     """
