@@ -477,6 +477,18 @@ class missing_whitespace(Check):
                     continue  # Allow tuple with only one element: (3,)
                 return index, "E231 missing whitespace after '%s'" % char
 
+    def fix(self, checker, logical_line):
+        line = logical_line
+        for index, char in reversed(list(enumerate(line[:-1]))):
+            if char in ',;:' and line[index + 1] not in WHITESPACE:
+                before = line[:index]
+                if char == ':' and before.count('[') > before.count(']'):
+                    continue  # Slice syntax, no space required
+                if char == ',' and line[index + 1] == ')':
+                    continue  # Allow tuple with only one element: (3,)
+                line = line[:index + 1] + ' ' + line[index + 1:]
+        checker.logical_line = line
+
 
 class indentation(Check):
     r"""
