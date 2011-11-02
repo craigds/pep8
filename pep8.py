@@ -393,12 +393,15 @@ class blank_lines(Check):
                     blank_lines_before_comment):
         if line_number == 1:
             return  # Don't expect blank lines before the first line
+        expected_blank_lines = 2
+        if indent_level:
+            expected_blank_lines = 1
         max_blank_lines = max(blank_lines, blank_lines_before_comment)
         if previous_logical.startswith('@'):
             if max_blank_lines:
                 checker.blank_lines = 0
-        elif max_blank_lines > 2 or (indent_level and max_blank_lines == 2):
-            checker.blank_lines = min(max_blank_lines, 2)
+        elif max_blank_lines > expected_blank_lines:
+            checker.blank_lines = min(max_blank_lines, expected_blank_lines)
         elif (logical_line.startswith('def ') or
               logical_line.startswith('class ') or
               logical_line.startswith('@')):
@@ -473,8 +476,8 @@ class missing_whitespace(Check):
                 before = line[:index]
                 if char == ':' and before.count('[') > before.count(']'):
                     continue  # Slice syntax, no space required
-                if char == ',' and line[index + 1] == ')':
-                    continue  # Allow tuple with only one element: (3,)
+                if char == ',' and line[index + 1] in ')]':
+                    continue  # Allow tuple/list with only one element: (3,)
                 return index, "E231 missing whitespace after '%s'" % char
 
     def fix(self, checker, logical_line):
@@ -484,7 +487,7 @@ class missing_whitespace(Check):
                 before = line[:index]
                 if char == ':' and before.count('[') > before.count(']'):
                     continue  # Slice syntax, no space required
-                if char == ',' and line[index + 1] == ')':
+                if char == ',' and line[index + 1] in ')]':
                     continue  # Allow tuple with only one element: (3,)
                 line = line[:index + 1] + ' ' + line[index + 1:]
         checker.logical_line = line
@@ -1088,9 +1091,8 @@ class Checker(object):
             logical.append(text)
             length += len(text)
             previous = token
-        self.logical_line = ''.join(logical)
+        self.logical_line = ''.join(logical).rstrip()
         assert self.logical_line.lstrip() == self.logical_line
-        assert self.logical_line.rstrip() == self.logical_line
 
     def check_logical(self):
         """
