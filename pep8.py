@@ -1096,7 +1096,11 @@ class Checker(object):
         options.counters['logical lines'] += 1
         self.muted_strings = []
         self.build_tokens_line()
-        physical_line_numbers = list(sorted(set([mapping_line[1][2][0] - 1 for mapping_line in self.mapping])))
+        physical_line_numbers = set()
+        for mapping_line in self.mapping:
+            physical_line_numbers.add(mapping_line[1][2][0] - 1)
+            physical_line_numbers.add(mapping_line[1][3][0] - 1)
+        physical_line_numbers = list(sorted(physical_line_numbers))
         first_line = self.lines[self.mapping[0][1][2][0] - 1]
         indent = first_line[:self.mapping[0][1][2][1]]
         self.previous_indent_level = self.indent_level
