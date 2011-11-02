@@ -586,6 +586,13 @@ class whitespace_around_operator(Check):
                 return offset, (tab and "E223 tab before operator" or
                                 "E221 multiple spaces before operator")
 
+    def fix(self, checker, logical_line):
+        for match in reversed(list(WHITESPACE_AROUND_OPERATOR_REGEX.finditer(logical_line))):
+            before, whitespace, after = match.groups()
+            if before in OPERATORS or after in OPERATORS:
+                logical_line = logical_line[:match.start()] + before + ' ' + after + logical_line[match.end():]
+        checker.logical_line = logical_line
+
 
 class missing_whitespace_around_operator(Check):
     r"""
