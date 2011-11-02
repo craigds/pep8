@@ -685,7 +685,7 @@ class whitespace_around_comma(Check):
     E241: a = (1,  2)
     E242: a = (1,\t2)
     """
-    codes = ['E241']
+    codes = ['E241', 'E242']
 
     def check(self, logical_line):
         line = logical_line
@@ -696,6 +696,9 @@ class whitespace_around_comma(Check):
             found = line.find(separator + '\t')
             if found > -1:
                 return found + 1, "E242 tab after '%s'" % separator
+
+    def fix(self, checker, logical_line):
+        checker.logical_line = re.sub(r'[,;:][ \t]+(?!#)', lambda match: match.group().strip() + ' ', logical_line)
 
 
 class whitespace_around_named_parameter_equals(Check):
