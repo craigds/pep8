@@ -673,6 +673,57 @@ class missing_whitespace_around_operator(Check):
             prev_text = text
             prev_end = end
 
+    def fix(self, checker, logical_line, tokens):
+        parens = 0
+        need_space = False
+        prev_type = tokenize.OP
+        prev_text = prev_end = None
+        space_insertions = []
+        for token_type, text, start, end, line in tokens:
+            if token_type in (tokenize.NL, tokenize.NEWLINE, tokenize.ERRORTOKEN):
+                # ERRORTOKEN is triggered by backticks in Python 3000
+                continue
+            if text in ('(', 'lambda'):
+                parens += 1
+            elif text == ')':
+                parens -= 1
+            if need_space:
+                if start != prev_end:
+                    need_space = False
+                elif text == '>' and prev_text == '<':
+                    # Tolerate the "<>" operator, even if running Python 3
+                    pass
+                else:
+                    space_insertions.append(prev_end[1])
+                    need_space = False
+            elif token_type == tokenize.OP and prev_end is not None:
+                if text == '=' and parens:
+                    # Allow keyword args or defaults: foo(bar=None).
+                    pass
+                elif text in BINARY_OPERATORS:
+                    need_space = True
+                elif text in UNARY_OPERATORS:
+                    # Allow unary operators: -123, -x, +1.
+                    # Allow argument unpacking: foo(*args, **kwargs).
+                    if prev_type == tokenize.OP:
+                        if prev_text in '}])':
+                            need_space = True
+                    elif prev_type == tokenize.NAME:
+                        if prev_text not in E225NOT_KEYWORDS:
+                            need_space = True
+                    else:
+                        need_space = True
+                if need_space and start == prev_end:
+                    space_insertions.append(start[1])
+            prev_type = token_type
+            prev_text = text
+            prev_end = end
+        index_offset = len(checker.indent_level * (checker.indent_char or ''))
+        for index in reversed(space_insertions):
+            index -= index_offset
+            logical_line = logical_line[:index] + ' ' + logical_line[index:]
+        checker.logical_line = logical_line
+
 
 class whitespace_around_comma(Check):
     """
