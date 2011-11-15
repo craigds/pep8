@@ -1188,6 +1188,7 @@ class Checker(object):
                             self.logical_line = result
         if options.fix:
             if len(physical_line_numbers) == 1:
+                str_index = 0
                 for muted_string in self.muted_strings:
                     str_modifiers = ''
                     while muted_string[:1] not in ('"', "'"):
@@ -1198,13 +1199,13 @@ class Checker(object):
                     if muted_string[:3] == quotes * 3:
                         quotes = muted_string[:3]
                     xs = muted_string[:len(quotes)] + 'x' * (len(muted_string) - (2 * len(quotes))) + muted_string[-len(quotes):]
-                    muted_string = muted_string.replace('\\', '\\\\')
-                    self.logical_line = re.sub(
-                        re.escape(str_modifiers + xs),
-                        str_modifiers + muted_string,
-                        self.logical_line,
-                        count=1,
+                    muted_string = str_modifiers + muted_string
+                    str_index += re.search(re.escape(str_modifiers + xs), self.logical_line[str_index:]).start()
+                    self.logical_line = (
+                        self.logical_line[:str_index] + muted_string +
+                        self.logical_line[str_index + len(muted_string):]
                     )
+                    str_index += len(muted_string)
                 self.writer.write('\n' * self.blank_lines)
                 self.writer.write((self.indent_char or '    ') * self.indent_level)
                 self.writer.write(self.logical_line)
